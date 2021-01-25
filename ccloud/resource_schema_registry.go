@@ -1,21 +1,19 @@
 package ccloud
 
 import (
-	"context"
 	"log"
 
 	ccloud "github.com/cgroschupp/go-client-confluent-cloud/confluentcloud"
-	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func schemaRegistryResource() *schema.Resource {
 	return &schema.Resource{
-		CreateContext: schemaRegistryCreate,
-		ReadContext:   schemaRegistryRead,
-		DeleteContext: schemaRegistryDelete,
+		Create: schemaRegistryCreate,
+		Read:   schemaRegistryRead,
+		Delete: schemaRegistryDelete,
 		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
+			State: schema.ImportStatePassthrough,
 		},
 		Schema: map[string]*schema.Schema{
 			"environment_id": {
@@ -44,7 +42,7 @@ func schemaRegistryResource() *schema.Resource {
 	}
 }
 
-func schemaRegistryCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func schemaRegistryCreate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*ccloud.Client)
 
 	environment := d.Get("environment_id").(string)
@@ -55,19 +53,19 @@ func schemaRegistryCreate(ctx context.Context, d *schema.ResourceData, meta inte
 
 	reg, err := c.CreateSchemaRegistry(environment, region, serviceProvider)
 	if err != nil {
-		return diag.FromErr(err)
+		return err
 	}
 
 	d.SetId(reg.ID)
 	err = d.Set("endpoint", reg.Endpoint)
 	if err != nil {
-		return diag.FromErr(err)
+		return err
 	}
 
 	return nil
 }
 
-func schemaRegistryRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func schemaRegistryRead(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*ccloud.Client)
 
 	environment := d.Get("environment_id").(string)
@@ -75,7 +73,7 @@ func schemaRegistryRead(ctx context.Context, d *schema.ResourceData, meta interf
 
 	env, err := c.GetSchemaRegistry(environment)
 	if err != nil {
-		return diag.FromErr(err)
+		return err
 	}
 
 	err = d.Set("environment_id", environment)
@@ -83,10 +81,10 @@ func schemaRegistryRead(ctx context.Context, d *schema.ResourceData, meta interf
 		err = d.Set("endpoint", env.Endpoint)
 	}
 
-	return diag.FromErr(err)
+	return err
 }
 
-func schemaRegistryDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func schemaRegistryDelete(d *schema.ResourceData, meta interface{}) error {
 	log.Printf("[WARN] Schema registry cannot be deleted: %s", d.Id())
 	return nil
 }
