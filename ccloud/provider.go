@@ -29,12 +29,16 @@ func Provider() *schema.Provider {
 			},
 		},
 		ConfigureContextFunc: providerConfigure,
+		DataSourcesMap: map[string]*schema.Resource{
+			"confluentcloud_environment": environmentDataSource(),
+		},
 		ResourcesMap: map[string]*schema.Resource{
 			"confluentcloud_kafka_cluster":   kafkaClusterResource(),
 			"confluentcloud_api_key":         apiKeyResource(),
 			"confluentcloud_environment":     environmentResource(),
 			"confluentcloud_schema_registry": schemaRegistryResource(),
 			"confluentcloud_service_account": serviceAccountResource(),
+			"confluentcloud_connector":       connectorResource(),
 		},
 	}
 }
@@ -45,7 +49,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	password := d.Get("password").(string)
 
 	var diags diag.Diagnostics
-	c := confluentcloud.NewClient(username, password)
+	c := confluentcloud.NewClient(username, password, false)
 
 	loginErr := c.Login()
 	if loginErr == nil {
@@ -55,7 +59,7 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	err := resource.RetryContext(ctx, 30*time.Minute, func() *resource.RetryError {
 		err := c.Login()
 
-		if strings.Contains(err.Error(), "Exceeded rate limit") {
+		if err != nil && strings.Contains(err.Error(), "Exceeded rate limit") {
 			log.Printf("[INFO] ConfluentCloud API rate limit exceeded, retrying.")
 			return resource.RetryableError(err)
 		}

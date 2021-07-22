@@ -2,7 +2,9 @@ package ccloud
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 
 	ccloud "github.com/cgroschupp/go-client-confluent-cloud/confluentcloud"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -15,7 +17,7 @@ func schemaRegistryResource() *schema.Resource {
 		ReadContext:   schemaRegistryRead,
 		DeleteContext: schemaRegistryDelete,
 		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
+			StateContext: schemaRegistryImport,
 		},
 		Schema: map[string]*schema.Schema{
 			"environment_id": {
@@ -47,18 +49,19 @@ func schemaRegistryResource() *schema.Resource {
 func schemaRegistryCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	c := meta.(*ccloud.Client)
 
-	environment := d.Get("environment_id").(string)
+	environmentID := d.Get("environment_id").(string)
 	region := d.Get("region").(string)
 	serviceProvider := d.Get("service_provider").(string)
 
-	log.Printf("[INFO] Creating Schema Registry %s", environment)
+	log.Printf("[INFO] Creating Schema Registry %s", environmentID)
 
-	reg, err := c.CreateSchemaRegistry(environment, region, serviceProvider)
+	reg, err := c.CreateSchemaRegistry(environmentID, region, serviceProvider)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
 	d.SetId(reg.ID)
+
 	err = d.Set("endpoint", reg.Endpoint)
 	if err != nil {
 		return diag.FromErr(err)
@@ -70,17 +73,23 @@ func schemaRegistryCreate(ctx context.Context, d *schema.ResourceData, meta inte
 func schemaRegistryRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	c := meta.(*ccloud.Client)
 
-	environment := d.Get("environment_id").(string)
-	log.Printf("[INFO] Reading Schema Registry %s", environment)
+	environmentID := d.Get("environment_id").(string)
 
-	env, err := c.GetSchemaRegistry(environment)
+	log.Printf("[INFO] Reading Schema Registry %s", environmentID)
+
+	registry, err := c.GetSchemaRegistry(environmentID)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	err = d.Set("environment_id", environment)
+	err = d.Set("environment_id", environmentID)
 	if err != nil {
-		err = d.Set("endpoint", env.Endpoint)
+		return diag.FromErr(err)
+	}
+
+	err = d.Set("endpoint", registry.Endpoint)
+	if err != nil {
+		return diag.FromErr(err)
 	}
 
 	return diag.FromErr(err)
@@ -89,4 +98,22 @@ func schemaRegistryRead(ctx context.Context, d *schema.ResourceData, meta interf
 func schemaRegistryDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	log.Printf("[WARN] Schema registry cannot be deleted: %s", d.Id())
 	return nil
+}
+
+func schemaRegistryImport(_ context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+	envIDAndClusterID := d.Id()
+	parts := strings.Split(envIDAndClusterID, "/")
+
+	var err error
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid format for schema registry cluster import: expected '<env ID>/<cluster ID>'")
+	}
+
+	d.SetId(parts[1])
+	err = d.Set("environment_id", parts[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return []*schema.ResourceData{d}, nil
 }
