@@ -16,11 +16,11 @@ import (
 
 func kafkaClusterResource() *schema.Resource {
 	return &schema.Resource{
-		CreateContext: clusterCreate,
-		ReadContext:   clusterRead,
-		DeleteContext: clusterDelete,
+		Create: clusterCreate,
+		Read:   clusterRead,
+		Delete: clusterDelete,
 		Importer: &schema.ResourceImporter{
-			StateContext: clusterImport,
+			State: clusterImport,
 		},
 		Schema: map[string]*schema.Schema{
 			"name": {
@@ -101,7 +101,7 @@ func kafkaClusterResource() *schema.Resource {
 	}
 }
 
-func clusterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func clusterCreate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*ccloud.Client)
 
 	name := d.Get("name").(string)
@@ -143,14 +143,14 @@ func clusterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}
 	cluster, err := c.CreateCluster(req)
 	if err != nil {
 		log.Printf("[ERROR] createCluster failed %v, %s", req, err)
-		return diag.FromErr(err)
+		return err
 	}
 	d.SetId(cluster.ID)
 	log.Printf("[DEBUG] Created kafka_cluster %s, Endpoint: %s", cluster.ID, cluster.Endpoint)
 
 	err = d.Set("bootstrap_servers", cluster.Endpoint)
 	if err != nil {
-		return diag.FromErr(err)
+		return err
 	}
 
 	logicalClusters := []ccloud.LogicalCluster{
@@ -166,24 +166,10 @@ func clusterCreate(ctx context.Context, d *schema.ResourceData, meta interface{}
 	log.Printf("[DEBUG] Creating bootstrap keypair")
 	key, err := c.CreateAPIKey(&apiKeyReq)
 	if err != nil {
-		return diag.FromErr(err)
-	}
-
-	stateConf := &resource.StateChangeConf{
-		Pending:      []string{"Pending"},
-		Target:       []string{"Ready"},
-		Refresh:      clusterReady(c, d.Id(), accountID, key.Key, key.Secret),
-		Timeout:      1800 * time.Second,
-		Delay:        3 * time.Second,
-		PollInterval: 5 * time.Second,
-		MinTimeout:   20 * time.Second,
+		return err
 	}
 
 	log.Printf("[DEBUG] Waiting for cluster to become healthy")
-	_, err = stateConf.WaitForStateContext(ctx)
-	if err != nil {
-		return diag.FromErr(fmt.Errorf("Error waiting for cluster (%s) to be ready: %s", d.Id(), err))
-	}
 
 	log.Printf("[DEBUG] Deleting bootstrap keypair")
 	err = c.DeleteAPIKey(fmt.Sprintf("%d", key.ID), accountID, logicalClusters)
@@ -232,18 +218,17 @@ func canConnect(connection, username, password string) bool {
 	return true
 }
 
-func clusterDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+func clusterDelete(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*ccloud.Client)
 	accountID := d.Get("environment_id").(string)
-	var diags diag.Diagnostics
 
 	if err := c.DeleteCluster(d.Id(), accountID); err != nil {
-		return diag.FromErr(err)
+		return err
 	}
-	return diags
+	return nil
 }
 
-func clusterImport(_ context.Context, d *schema.ResourceData, _ interface{}) ([]*schema.ResourceData, error) {
+func clusterImport(d *schema.ResourceData, _ interface{}) ([]*schema.ResourceData, error) {
 	envIDAndClusterID := d.Id()
 	parts := strings.Split(envIDAndClusterID, "/")
 
@@ -261,11 +246,15 @@ func clusterImport(_ context.Context, d *schema.ResourceData, _ interface{}) ([]
 	return []*schema.ResourceData{d}, nil
 }
 
-func clusterRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+
+func clusterRead(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*ccloud.Client)
 	accountID := d.Get("environment_id").(string)
 
 	cluster, err := c.GetCluster(d.Id(), accountID)
+
+	log.Println(cluster)
+
 	if err == nil {
 		err = d.Set("bootstrap_servers", cluster.Endpoint)
 	}
@@ -297,7 +286,7 @@ func clusterRead(ctx context.Context, d *schema.ResourceData, meta interface{}) 
 		err = d.Set("cku", cluster.Cku)
 	}
 
-	return diag.FromErr(err)
+	return err
 }
 
 func kafkaClient(connection, username, password string) (sarama.Client, error) {
